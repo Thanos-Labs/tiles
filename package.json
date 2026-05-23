@@ -1,0 +1,31 @@
+{
+  "name": "tiles",
+  "version": "1.0.0",
+  "description": "Leaflet ocean depth map",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Thanos-Labs/tiles.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/Thanos-Labs/tiles/issues"
+  },
+  "homepage": "https://github.com/Thanos-Labs/tiles#readme",
+  "dependencies": {
+    "@types/leaflet": "^1.9.21",
+    "leaflet": "^1.9.4",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.14"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1"
+  }
+}
