@@ -5,8 +5,9 @@ import "./styles.css";
 type SiteType = "port" | "naval";
 type Site = [SiteType, string, number, number];
 
-const GEBCO_OPENDAP_ASCII_URL =
-  "/gebco/gebco_2026.ascii";
+const GEBCO_OPENDAP_ASCII_URL = import.meta.env.DEV
+  ? "/gebco/gebco_2026.ascii"
+  : "https://dap.ceda.ac.uk/thredds/dodsC/bodc/gebco/global/gebco_2026/ice_surface_elevation/netcdf/GEBCO_2026.nc.ascii";
 const GEBCO_GRID_WIDTH = 86400;
 const GEBCO_GRID_HEIGHT = 43200;
 const GEBCO_GRID_RESOLUTION = 1 / 240;
