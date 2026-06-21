@@ -1,4 +1,4 @@
-const CACHE_PREFIX = "ocean-depth-map-";
+const CACHE_PREFIX = "satellite-locations-map-";
 
 self.addEventListener("install", event => {
   event.waitUntil(self.skipWaiting());

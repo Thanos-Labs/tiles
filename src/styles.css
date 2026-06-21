@@ -37,8 +37,6 @@ body {
   backdrop-filter: blur(8px);
 }
 
-.readout,
-.scale,
 .toggle {
   display: flex;
   align-items: center;
@@ -46,32 +44,29 @@ body {
   gap: 12px;
 }
 
-.readout span,
-.scale,
 .panel p {
   color: #a9c6d0;
 }
 
-.readout strong {
-  color: #ffffff;
-  font-size: 1.1rem;
-}
-
-#depthSlider {
-  width: 100%;
-  margin: 12px 0 6px;
-  accent-color: #31c9d6;
-}
-
-.scale {
-  font-size: 0.78rem;
+.layers {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgb(174 225 238 / 18%);
 }
 
 .toggle {
   justify-content: flex-start;
-  margin-top: 12px;
   color: #d7edf3;
   font-size: 0.9rem;
+}
+
+.toggle input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: #31c9d6;
 }
 
 .panel p {

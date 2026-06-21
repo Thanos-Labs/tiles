@@ -1,53 +1,55 @@
-import L, { LatLngBounds } from "leaflet";
+import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./styles.css";
 
 type SiteType = "port" | "naval";
 type Site = [SiteType, string, number, number];
+type Bbox = [number, number, number, number];
+type SatelliteLocation = {
+  id: string;
+  name: string;
+  bbox: Bbox;
+};
+type StacItem = {
+  id: string;
+  properties?: {
+    datetime?: string;
+  };
+};
 
-const GEBCO_OPENDAP_ASCII_URL = import.meta.env.DEV
-  ? "/gebco/gebco_2026.ascii"
-  : "https://dap.ceda.ac.uk/thredds/dodsC/bodc/gebco/global/gebco_2026/ice_surface_elevation/netcdf/GEBCO_2026.nc.ascii";
-const GEBCO_GRID_WIDTH = 86400;
-const GEBCO_GRID_HEIGHT = 43200;
-const GEBCO_GRID_RESOLUTION = 1 / 240;
-const GEBCO_NODATA = -32767;
-const DEPTH_TILE_SIZE = 256;
-const DEPTH_SAMPLE_SIZE = 64;
-const MAX_GEBCO_REQUESTS = 4;
-const GEBCO_RETRY_COUNT = 2;
-const DEPTH_TILE_RETRY_COUNT = 2;
-
-let activeGebcoRequests = 0;
-const gebcoRequestQueue: Array<() => void> = [];
+const NAVAL_BASES_URL = "https://thanos-labs.github.io/naval-data/data/naval_bases.json";
+const STAC_API = "https://planetarycomputer.microsoft.com/api/stac/v1";
+const PLANETARY_COMPUTER_TILES = "https://planetarycomputer.microsoft.com/api/data/v1/item/tiles/WebMercatorQuad/{z}/{x}/{y}@1x";
+const SATELLITE_COLLECTION = "sentinel-2-l2a";
+const SATELLITE_ASSETS = "visual";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Missing #app root");
 
 app.innerHTML = `
-  <main id="map" aria-label="Ocean navigation depth map"></main>
-  <section class="panel" aria-label="Depth controls">
-    <div class="readout">
-      <span>Minimum safe water</span>
-      <strong id="depthValue">10 m</strong>
+  <main id="map" aria-label="Satellite map"></main>
+  <section class="panel" aria-label="Map controls">
+    <div class="layers" aria-label="Layers">
+      <label class="toggle"><input id="satelliteLayerToggle" type="checkbox" checked> <span>Satellite imagery</span></label>
+      <label class="toggle"><input id="siteLayerToggle" type="checkbox" checked> <span>Ports and bases</span></label>
     </div>
-    <input id="depthSlider" type="range" min="0" max="50" step="5" value="10">
-    <div class="scale"><span>0 m</span><span>50 m</span></div>
-    <p>Blue overlay uses GEBCO 2026 bathymetry. Areas shown are at or deeper than selected depth. Not for navigation.</p>
-    <p id="depthStatus" class="status">Loading GEBCO depth data...</p>
+    <p>Satellite imagery uses the latest Sentinel-2 visual asset available from Microsoft Planetary Computer for each location bounding box.</p>
+    <p id="satelliteStatus" class="status">Loading satellite imagery...</p>
   </section>
 `;
 
-const depthSlider = document.querySelector<HTMLInputElement>("#depthSlider");
-const depthValue = document.querySelector<HTMLElement>("#depthValue");
-const depthStatus = document.querySelector<HTMLElement>("#depthStatus");
-if (!depthSlider || !depthValue || !depthStatus) throw new Error("Missing controls");
-const status = depthStatus;
+const satelliteStatus = document.querySelector<HTMLElement>("#satelliteStatus");
+const satelliteLayerToggle = document.querySelector<HTMLInputElement>("#satelliteLayerToggle");
+const siteLayerToggle = document.querySelector<HTMLInputElement>("#siteLayerToggle");
+if (!satelliteStatus || !satelliteLayerToggle || !siteLayerToggle) {
+  throw new Error("Missing controls");
+}
+const satelliteStatusElement = satelliteStatus;
 
 const map = L.map("map", {
   worldCopyJump: true,
   minZoom: 2,
-  maxZoom: 12,
+  maxZoom: 18,
   zoomControl: true,
   preferCanvas: true
 }).setView([16, -155], 3);
@@ -55,11 +57,15 @@ const map = L.map("map", {
 L.tileLayer("https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png", {
   attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
   subdomains: "abcd",
-  maxZoom: 12,
+  maxZoom: 18,
   updateWhenIdle: true,
   updateWhenZooming: false,
   keepBuffer: 2
 }).addTo(map);
+
+map.createPane("satellitePane");
+const satellitePane = map.getPane("satellitePane");
+if (satellitePane) satellitePane.style.zIndex = "250";
 
 const sites: Site[] = [
   ["port", "Shanghai", 31.23, 121.49],
@@ -97,186 +103,18 @@ const sites: Site[] = [
 ];
 
 const siteLayer = L.layerGroup().addTo(map);
-const slider = depthSlider;
+const satelliteLayer = L.layerGroup().addTo(map);
 
-let redrawTimer = 0;
-let navigationRedrawFrame = 0;
-
-class GebcoDepthLayer extends L.GridLayer {
-  private readonly sampleCache = new Map<string, Promise<DepthSample>>();
-  private readonly maxSampleCache = 360;
-  private hasData = false;
-  private tileFailures = 0;
-  private pendingTiles = 0;
-  private retryRedrawTimer = 0;
-
-  createTile(coords: L.Coords, done: L.DoneCallback): HTMLElement {
-    const tile = L.DomUtil.create("canvas", "depth-mask-tile") as HTMLCanvasElement;
-    tile.width = DEPTH_TILE_SIZE;
-    tile.height = DEPTH_TILE_SIZE;
-
-    const threshold = Number(slider.value);
-    this.setLoading(true);
-    this.drawTileWithRetry(tile, coords, threshold, DEPTH_TILE_RETRY_COUNT)
-      .then(() => done(undefined, tile))
-      .catch(error => {
-        console.error("GEBCO depth tile failed", error);
-        this.tileFailures += 1;
-        if (!this.hasData && this.tileFailures > 8) {
-          status.textContent = "GEBCO depth overlay failed to load.";
-        } else if (!this.hasData) {
-          status.textContent = "Loading GEBCO 2026 depth data...";
-        }
-        this.scheduleRetryRedraw();
-        done(undefined, tile);
-      })
-      .finally(() => {
-        this.setLoading(false);
-      });
-
-    return tile;
-  }
-
-  private async drawTileWithRetry(
-    tile: HTMLCanvasElement,
-    coords: L.Coords,
-    threshold: number,
-    retries: number
-  ): Promise<void> {
-    try {
-      await this.drawTile(tile, coords, threshold);
-    } catch (error) {
-      if (retries <= 0) throw error;
-      await delay(300 * (DEPTH_TILE_RETRY_COUNT - retries + 1));
-      return this.drawTileWithRetry(tile, coords, threshold, retries - 1);
-    }
-  }
-
-  private scheduleRetryRedraw(): void {
-    window.clearTimeout(this.retryRedrawTimer);
-    this.retryRedrawTimer = window.setTimeout(() => {
-      if (map.hasLayer(this)) this.redraw();
-    }, 1200);
-  }
-
-  private setLoading(isLoading: boolean): void {
-    this.pendingTiles += isLoading ? 1 : -1;
-    this.pendingTiles = Math.max(0, this.pendingTiles);
-    status.classList.toggle("loading", this.pendingTiles > 0);
-    if (this.pendingTiles > 0 && !this.hasData) {
-      status.textContent = "Loading GEBCO 2026 depth data...";
-    }
-  }
-
-  private async drawTile(tile: HTMLCanvasElement, coords: L.Coords, threshold: number): Promise<void> {
-    const ctx = tile.getContext("2d", { alpha: true });
-    if (!ctx) return;
-
-    const bounds = tileBounds(coords);
-    const windows = rasterWindows(bounds);
-    if (windows.length === 0) return;
-
-    let rendered = false;
-    ctx.clearRect(0, 0, DEPTH_TILE_SIZE, DEPTH_TILE_SIZE);
-    const mask = ctx.createImageData(DEPTH_TILE_SIZE, DEPTH_TILE_SIZE);
-    const tileOrigin = coords.scaleBy(L.point(DEPTH_TILE_SIZE, DEPTH_TILE_SIZE));
-
-    for (const window of windows) {
-      const sample = await this.readSample(window);
-      const xStart = Math.max(0, Math.floor(window.destX));
-      const xEnd = Math.min(DEPTH_TILE_SIZE, Math.ceil(window.destX + window.destWidth));
-
-      for (let y = 0; y < DEPTH_TILE_SIZE; y += 1) {
-        const lat = map.unproject(L.point(tileOrigin.x, tileOrigin.y + y + 0.5), coords.z).lat;
-        const sampleY = Math.round((latToGridFloat(lat) - sample.latStart) / sample.latStride);
-        if (sampleY < 0 || sampleY >= sample.height) continue;
-
-        for (let x = xStart; x < xEnd; x += 1) {
-          const lon = map.unproject(L.point(tileOrigin.x + x + 0.5, tileOrigin.y + y + 0.5), coords.z).lng;
-          const sampleX = Math.round((lonToGridFloat(lon) - sample.lonStart) / sample.lonStride);
-          if (sampleX < 0 || sampleX >= sample.width) continue;
-
-          const elevation = sample.values[sampleY * sample.width + sampleX];
-          if (elevation <= GEBCO_NODATA) continue;
-
-          const depth = elevation < 0 ? -elevation : 0;
-          if (depth >= threshold) {
-            const p = (y * DEPTH_TILE_SIZE + x) * 4;
-            const strength = Math.min(1, (Math.min(depth, 50) - threshold) / Math.max(5, 50 - threshold));
-            mask.data[p] = 14;
-            mask.data[p + 1] = Math.round(125 + strength * 75);
-            mask.data[p + 2] = Math.round(180 + strength * 55);
-            mask.data[p + 3] = Math.round(82 + strength * 108);
-            rendered = true;
-          }
-        }
-      }
-    }
-    ctx.putImageData(mask, 0, 0);
-    if (!rendered) return;
-
-    if (!this.hasData) {
-      this.hasData = true;
-      status.textContent = "GEBCO 2026 depth data loaded.";
-    }
-    this.tileFailures = 0;
-  }
-
-  private readSample(window: RasterWindow): Promise<DepthSample> {
-    const cached = this.sampleCache.get(window.key);
-    if (cached) return cached;
-
-    const promise = fetchGebcoText(opendapUrl(window))
-      .then(parseOpendapGrid)
-      .then(sample => ({
-        ...sample,
-        latStart: window.latStart,
-        latStride: window.latStride,
-        lonStart: window.lonStart,
-        lonStride: window.lonStride
-      }))
-      .catch(error => {
-        this.sampleCache.delete(window.key);
-        throw error;
-      });
-
-    this.sampleCache.set(window.key, promise);
-    while (this.sampleCache.size > this.maxSampleCache) {
-      const first = this.sampleCache.keys().next().value;
-      if (first === undefined) break;
-      this.sampleCache.delete(first);
-    }
-    return promise;
-  }
-}
-
-const depthLayer = new GebcoDepthLayer({
-  tileSize: DEPTH_TILE_SIZE,
-  opacity: 0.72,
-  maxZoom: 12,
-  updateWhenIdle: true,
-  updateWhenZooming: true,
-  keepBuffer: 2
-}).addTo(map);
-
+loadSatelliteImagery().catch(error => {
+  console.error("Satellite imagery failed", error);
+  setSatelliteStatus("Satellite imagery failed to load.", false);
+});
 renderVisibleSites();
 
 map.on("moveend zoomend", renderVisibleSites);
-map.on("move zoom moveend zoomend", scheduleDepthRedraw);
 
-depthSlider.addEventListener("input", () => {
-  depthValue.textContent = `${Number(depthSlider.value).toLocaleString()} m`;
-  window.clearTimeout(redrawTimer);
-  redrawTimer = window.setTimeout(() => depthLayer.redraw(), 80);
-});
-
-function scheduleDepthRedraw(): void {
-  if (navigationRedrawFrame !== 0) return;
-  navigationRedrawFrame = window.requestAnimationFrame(() => {
-    navigationRedrawFrame = 0;
-    depthLayer.redraw();
-  });
-}
+satelliteLayerToggle.addEventListener("change", () => setLayerEnabled(satelliteLayer, satelliteLayerToggle.checked));
+siteLayerToggle.addEventListener("change", () => setLayerEnabled(siteLayer, siteLayerToggle.checked));
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
@@ -292,7 +130,7 @@ async function cleanupServiceWorkers(): Promise<void> {
     const keys = await caches.keys();
     await Promise.all(
       keys
-        .filter(key => key.startsWith("ocean-depth-map-"))
+        .filter(key => key.startsWith("satellite-locations-map-"))
         .map(key => caches.delete(key))
     );
   }
@@ -328,220 +166,177 @@ function renderVisibleSites(): void {
   }
 }
 
-function tileBounds(coords: L.Coords): LatLngBounds {
-  const tileSize = L.point(DEPTH_TILE_SIZE, DEPTH_TILE_SIZE);
-  const nw = map.unproject(coords.scaleBy(tileSize), coords.z);
-  const se = map.unproject(coords.add([1, 1]).scaleBy(tileSize), coords.z);
-  return L.latLngBounds(se, nw);
+async function loadSatelliteImagery(): Promise<void> {
+  setSatelliteStatus("Loading satellite locations...", true);
+  const raw = await fetchJson(NAVAL_BASES_URL);
+  const locations = extractSatelliteLocations(raw);
+
+  if (locations.length === 0) {
+    setSatelliteStatus("No satellite locations found.", false);
+    return;
+  }
+
+  setSatelliteStatus(`Finding Sentinel-2 imagery for ${locations.length} locations...`, true);
+  let loaded = 0;
+  let missing = 0;
+
+  const results = await Promise.allSettled(locations.map(async location => {
+    const item = await stacSearchLatestByBbox(SATELLITE_COLLECTION, location.bbox);
+    if (!item) {
+      missing += 1;
+      return;
+    }
+
+    addSatelliteTileLayer(location, item);
+    loaded += 1;
+    setSatelliteStatus(`Loaded satellite imagery for ${loaded}/${locations.length} locations...`, true);
+  }));
+
+  missing += results.filter(result => result.status === "rejected").length;
+  if (missing > 0) {
+    console.warn("Some satellite locations failed to load", results.filter(result => result.status === "rejected"));
+  }
+
+  setSatelliteStatus(
+    loaded > 0
+      ? `Satellite imagery loaded for ${loaded} locations${missing > 0 ? `; ${missing} unavailable.` : "."}`
+      : "No satellite imagery found.",
+    false
+  );
 }
 
-type RasterWindow = {
-  key: string;
-  west: number;
-  east: number;
-  latStart: number;
-  latStride: number;
-  latEnd: number;
-  lonStart: number;
-  lonStride: number;
-  lonEnd: number;
-  destX: number;
-  destWidth: number;
-};
-
-type RawDepthSample = {
-  width: number;
-  height: number;
-  values: Int16Array;
-};
-
-type DepthSample = RawDepthSample & {
-  latStart: number;
-  latStride: number;
-  lonStart: number;
-  lonStride: number;
-};
-
-function rasterWindows(bounds: LatLngBounds): RasterWindow[] {
-  const west = bounds.getWest();
-  const east = bounds.getEast();
-  const north = clamp(bounds.getNorth(), -89.999, 89.999);
-  const south = clamp(bounds.getSouth(), -89.999, 89.999);
-  const spans = splitLonSpan(west, east);
-
-  return spans.flatMap(span => {
-    const destX = ((span.sourceWest - west) / (east - west)) * DEPTH_TILE_SIZE;
-    const destWidth = ((span.sourceEast - span.sourceWest) / (east - west)) * DEPTH_TILE_SIZE;
-    const lonStart = lonToGridStart(span.west);
-    const lonEnd = lonToGridEnd(span.east);
-    const latStart = latToGridStart(south);
-    const latEnd = latToGridEnd(north);
-
-    if (lonEnd < lonStart || latEnd < latStart || destWidth <= 0) return [];
-
-    const targetWidth = Math.max(2, Math.round((destWidth / DEPTH_TILE_SIZE) * DEPTH_SAMPLE_SIZE));
-    const lonStride = strideFor(lonStart, lonEnd, targetWidth);
-    const latStride = strideFor(latStart, latEnd, DEPTH_SAMPLE_SIZE);
-    const key = [
-      latStart,
-      latStride,
-      latEnd,
-      lonStart,
-      lonStride,
-      lonEnd
-    ].join(":");
-
-    return [{
-      key,
-      west: span.west,
-      east: span.east,
-      latStart,
-      latStride,
-      latEnd,
-      lonStart,
-      lonStride,
-      lonEnd,
-      destX,
-      destWidth
-    }];
+function addSatelliteTileLayer(location: SatelliteLocation, item: StacItem): void {
+  const params = new URLSearchParams({
+    collection: SATELLITE_COLLECTION,
+    item: item.id,
+    assets: SATELLITE_ASSETS
   });
-}
-
-function splitLonSpan(west: number, east: number): Array<{
-  west: number;
-  east: number;
-  sourceWest: number;
-  sourceEast: number;
-}> {
-  const spans: Array<{ west: number; east: number; sourceWest: number; sourceEast: number }> = [];
-  for (let cursor = west; cursor < east - 0.000001; ) {
-    const wrappedWest = wrapLng(cursor);
-    const boundary = cursor + (180 - wrappedWest || 360);
-    const next = Math.min(east, boundary);
-    const wrappedEast = wrapLng(next);
-    const rasterWest = wrappedWest === 180 ? -180 : wrappedWest;
-    const rasterEast = wrappedEast <= rasterWest ? 180 : wrappedEast;
-    spans.push({
-      west: rasterWest,
-      east: rasterEast,
-      sourceWest: cursor,
-      sourceEast: next
-    });
-    cursor = next <= cursor ? cursor + 360 : next;
-  }
-  return spans;
-}
-
-function lonToGridStart(lon: number): number {
-  return clamp(Math.ceil(((lon + 180) - GEBCO_GRID_RESOLUTION / 2) / GEBCO_GRID_RESOLUTION), 0, GEBCO_GRID_WIDTH - 1);
-}
-
-function lonToGridFloat(lon: number): number {
-  return ((lon + 180) - GEBCO_GRID_RESOLUTION / 2) / GEBCO_GRID_RESOLUTION;
-}
-
-function lonToGridEnd(lon: number): number {
-  return clamp(Math.floor(((lon + 180) - GEBCO_GRID_RESOLUTION / 2) / GEBCO_GRID_RESOLUTION), 0, GEBCO_GRID_WIDTH - 1);
-}
-
-function latToGridStart(lat: number): number {
-  return clamp(Math.ceil(((lat + 90) - GEBCO_GRID_RESOLUTION / 2) / GEBCO_GRID_RESOLUTION), 0, GEBCO_GRID_HEIGHT - 1);
-}
-
-function latToGridFloat(lat: number): number {
-  return ((lat + 90) - GEBCO_GRID_RESOLUTION / 2) / GEBCO_GRID_RESOLUTION;
-}
-
-function latToGridEnd(lat: number): number {
-  return clamp(Math.floor(((lat + 90) - GEBCO_GRID_RESOLUTION / 2) / GEBCO_GRID_RESOLUTION), 0, GEBCO_GRID_HEIGHT - 1);
-}
-
-function strideFor(start: number, end: number, targetCount: number): number {
-  return Math.max(1, Math.ceil((end - start + 1) / targetCount));
-}
-
-function opendapUrl(window: RasterWindow): string {
-  const constraint =
-    `elevation.elevation[${window.latStart}:${window.latStride}:${window.latEnd}]` +
-    `[${window.lonStart}:${window.lonStride}:${window.lonEnd}]`;
-  return `${GEBCO_OPENDAP_ASCII_URL}?${encodeURIComponent(constraint)}`;
-}
-
-function parseOpendapGrid(text: string): RawDepthSample {
-  const separatorIndex = text.indexOf("---------------------------------------------");
-  const body = separatorIndex >= 0 ? text.slice(separatorIndex) : text;
-  const rows: number[][] = [];
-  const rowPattern = /^\[\d+\],\s*(.+)$/gm;
-  let match: RegExpExecArray | null;
-
-  while ((match = rowPattern.exec(body)) !== null) {
-    rows.push(match[1].split(",").map(value => Number(value.trim())));
-  }
-
-  if (rows.length === 0 || rows[0].length === 0) {
-    throw new Error("GEBCO response did not contain an elevation grid.");
-  }
-
-  const width = rows[0].length;
-  const values = new Int16Array(width * rows.length);
-  rows.forEach((row, y) => {
-    if (row.length !== width) throw new Error("GEBCO response rows have inconsistent widths.");
-    row.forEach((value, x) => {
-      values[y * width + x] = value;
-    });
+  const [west, south, east, north] = location.bbox;
+  const bounds = L.latLngBounds([south, west], [north, east]);
+  const layer = L.tileLayer(`${PLANETARY_COMPUTER_TILES}?${params.toString()}`, {
+    attribution: "Sentinel-2 imagery &copy; ESA, rendered by Microsoft Planetary Computer",
+    bounds,
+    maxNativeZoom: 18,
+    maxZoom: 18,
+    opacity: 0.78,
+    pane: "satellitePane",
+    updateWhenIdle: true,
+    updateWhenZooming: false,
+    keepBuffer: 1
   });
 
-  return {
-    width,
-    height: rows.length,
-    values
-  };
+  layer.bindPopup(
+    `<strong>${escapeHtml(location.name)}</strong><br>Sentinel-2 ${escapeHtml(item.properties?.datetime?.slice(0, 10) ?? item.id)}`,
+    { closeButton: false }
+  );
+  layer.addTo(satelliteLayer);
+
+  L.rectangle(bounds, {
+    color: "#ffec99",
+    dashArray: "5 5",
+    fill: false,
+    interactive: false,
+    opacity: 0.95,
+    pane: "overlayPane",
+    weight: 2
+  }).addTo(satelliteLayer);
 }
 
-function fetchGebcoText(url: string): Promise<string> {
-  return scheduleGebcoRequest(() => fetchWithRetry(url, GEBCO_RETRY_COUNT));
-}
+function extractSatelliteLocations(raw: unknown): SatelliteLocation[] {
+  const entries = Array.isArray(raw)
+    ? raw
+    : isRecord(raw) && Array.isArray(raw.features)
+      ? raw.features
+      : isRecord(raw) && Array.isArray(raw.locations)
+        ? raw.locations
+        : [];
 
-function scheduleGebcoRequest<T>(task: () => Promise<T>): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const run = () => {
-      activeGebcoRequests += 1;
-      task()
-        .then(resolve, reject)
-        .finally(() => {
-          activeGebcoRequests -= 1;
-          gebcoRequestQueue.shift()?.();
-        });
-    };
-
-    if (activeGebcoRequests < MAX_GEBCO_REQUESTS) {
-      run();
-    } else {
-      gebcoRequestQueue.push(run);
+  return entries.flatMap((entry, index) => {
+    try {
+      const bbox = extractBbox(entry);
+      return [{
+        id: extractId(entry, index),
+        name: extractName(entry, index),
+        bbox
+      }];
+    } catch (error) {
+      console.warn("Skipping satellite location without bounds", entry, error);
+      return [];
     }
   });
 }
 
-async function fetchWithRetry(url: string, retries: number): Promise<string> {
-  try {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`GEBCO request failed: ${response.status}`);
-    return await response.text();
-  } catch (error) {
-    if (retries <= 0) throw error;
-    await delay(350 * (GEBCO_RETRY_COUNT - retries + 1));
-    return fetchWithRetry(url, retries - 1);
+function extractBbox(entry: unknown): Bbox {
+  if (Array.isArray(entry) && entry.length >= 4) return entry.slice(0, 4).map(Number) as Bbox;
+  if (!isRecord(entry)) throw new Error("Location is not an object.");
+
+  if (Array.isArray(entry.bbox) && entry.bbox.length >= 4) return entry.bbox.slice(0, 4).map(Number) as Bbox;
+  if (isRecord(entry.bounds)) {
+    const west = Number(entry.bounds.west);
+    const south = Number(entry.bounds.south);
+    const east = Number(entry.bounds.east);
+    const north = Number(entry.bounds.north);
+    if ([west, south, east, north].every(Number.isFinite)) return [west, south, east, north];
+  }
+  if (entry.type === "Feature" && Array.isArray(entry.bbox) && entry.bbox.length >= 4) {
+    return entry.bbox.slice(0, 4).map(Number) as Bbox;
+  }
+
+  throw new Error(`Could not find bbox on entry: ${JSON.stringify(entry)}`);
+}
+
+function extractId(entry: unknown, index: number): string {
+  if (!isRecord(entry)) return `location_${index + 1}`;
+  const properties = isRecord(entry.properties) ? entry.properties : undefined;
+  return String(entry.id ?? entry.name ?? properties?.name ?? properties?.id ?? `location_${index + 1}`);
+}
+
+function extractName(entry: unknown, index: number): string {
+  if (!isRecord(entry)) return `Location ${index + 1}`;
+  const properties = isRecord(entry.properties) ? entry.properties : undefined;
+  return String(entry.name ?? properties?.name ?? entry.id ?? `Location ${index + 1}`);
+}
+
+async function stacSearchLatestByBbox(collection: string, bbox: Bbox): Promise<StacItem | null> {
+  const params = new URLSearchParams({
+    collections: collection,
+    bbox: bbox.join(","),
+    limit: "1",
+    sortby: "-datetime"
+  });
+  const data = await fetchJson(`${STAC_API}/search?${params.toString()}`);
+  if (!isRecord(data) || !Array.isArray(data.features)) return null;
+  return data.features[0] as StacItem | undefined ?? null;
+}
+
+async function fetchJson(url: string): Promise<unknown> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`GET ${url} failed: ${response.status} ${response.statusText}`);
+  return response.json() as Promise<unknown>;
+}
+
+function setLayerEnabled(layer: L.Layer, enabled: boolean): void {
+  if (enabled) {
+    if (!map.hasLayer(layer)) layer.addTo(map);
+  } else if (map.hasLayer(layer)) {
+    layer.remove();
   }
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => window.setTimeout(resolve, ms));
+function setSatelliteStatus(message: string, isLoading: boolean): void {
+  satelliteStatusElement.textContent = message;
+  satelliteStatusElement.classList.toggle("loading", isLoading);
 }
 
-function wrapLng(lng: number): number {
-  return ((((lng + 180) % 360) + 360) % 360) - 180;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"]/g, character => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;"
+  })[character] ?? character);
 }
