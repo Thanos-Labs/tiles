@@ -39,13 +39,14 @@ app.innerHTML = `
     <p>Satellite imagery uses the latest Sentinel-2 visual asset available from Microsoft Planetary Computer for each location bounding box.</p>
     <p>SAR imagery uses the latest Sentinel-1 visual asset available from Microsoft Planetary Computer for each location bounding box.</p>
     <p id="satelliteStatus" class="status">Loading satellite imagery...</p>
+    <p id="sarStatus" class="status">Loading SAR imagery...</p>
   </section>
 `;
 
 const satelliteStatus = document.querySelector<HTMLElement>("#satelliteStatus");
 const sarStatus = document.querySelector<HTMLElement>("#sarStatus");
 const satelliteLayerToggle = document.querySelector<HTMLInputElement>("#satelliteLayerToggle");
-const sarLayerToggle = document.querySelector<HTMLInputElement>("sarLayerToggle");
+const sarLayerToggle = document.querySelector<HTMLInputElement>("#sarLayerToggle");
 const siteLayerToggle = document.querySelector<HTMLInputElement>("#siteLayerToggle");
 if (!satelliteStatus || !sarStatus || !satelliteLayerToggle || !sarLayerToggle || !siteLayerToggle) {
   throw new Error("Missing controls");
@@ -121,6 +122,11 @@ loadSatelliteImagery().catch(error => {
   console.error("Satellite imagery failed", error);
   setSatelliteStatus("Satellite imagery failed to load.", false);
 });
+
+loadSarImagery().catch(error => {
+  console.error("SAR imagery failed", error);
+  setSarStatus("SAR imagery failed to load.", false);
+})
 renderVisibleSites();
 
 map.on("moveend zoomend", renderVisibleSites);
