@@ -22,6 +22,8 @@ const STAC_API = "https://planetarycomputer.microsoft.com/api/stac/v1";
 const PLANETARY_COMPUTER_TILES = "https://planetarycomputer.microsoft.com/api/data/v1/item/tiles/WebMercatorQuad/{z}/{x}/{y}@1x";
 const SATELLITE_COLLECTION = "sentinel-2-l2a";
 const SATELLITE_ASSETS = "visual";
+const SENTINEL_1_COLLECTION = "sentinel-1-rtc";
+const SENTINEL_1_ASSET = "vv";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Missing #app root");
@@ -31,20 +33,25 @@ app.innerHTML = `
   <section class="panel" aria-label="Map controls">
     <div class="layers" aria-label="Layers">
       <label class="toggle"><input id="satelliteLayerToggle" type="checkbox" checked> <span>Satellite imagery</span></label>
+      <label class="toggle"><input id="sarLayerToggle" type="checkbox" checked> <span>SAR imagery</span></label>
       <label class="toggle"><input id="siteLayerToggle" type="checkbox" checked> <span>Ports and bases</span></label>
     </div>
     <p>Satellite imagery uses the latest Sentinel-2 visual asset available from Microsoft Planetary Computer for each location bounding box.</p>
+    <p>SAR imagery uses the latest Sentinel-1 visual asset available from Microsoft Planetary Computer for each location bounding box.</p>
     <p id="satelliteStatus" class="status">Loading satellite imagery...</p>
   </section>
 `;
 
 const satelliteStatus = document.querySelector<HTMLElement>("#satelliteStatus");
+const sarStatus = document.querySelector<HTMLElement>("#sarStatus");
 const satelliteLayerToggle = document.querySelector<HTMLInputElement>("#satelliteLayerToggle");
+const sarLayerToggle = document.querySelector<HTMLInputElement>("sarLayerToggle");
 const siteLayerToggle = document.querySelector<HTMLInputElement>("#siteLayerToggle");
-if (!satelliteStatus || !satelliteLayerToggle || !siteLayerToggle) {
+if (!satelliteStatus || !sarStatus || !satelliteLayerToggle || !sarLayerToggle || !siteLayerToggle) {
   throw new Error("Missing controls");
 }
 const satelliteStatusElement = satelliteStatus;
+const sarStatusElement = sarStatus;
 
 const map = L.map("map", {
   worldCopyJump: true,
@@ -66,6 +73,10 @@ L.tileLayer("https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png
 map.createPane("satellitePane");
 const satellitePane = map.getPane("satellitePane");
 if (satellitePane) satellitePane.style.zIndex = "250";
+
+map.createPane("sarPane");
+const sarPane = map.getPane("sarPane");
+if (sarPane) sarPane.style.zIndex = "250";
 
 const sites: Site[] = [
   ["port", "Shanghai", 31.23, 121.49],
@@ -104,6 +115,7 @@ const sites: Site[] = [
 
 const siteLayer = L.layerGroup().addTo(map);
 const satelliteLayer = L.layerGroup().addTo(map);
+const sarLayer = L.layerGroup().addTo(map);
 
 loadSatelliteImagery().catch(error => {
   console.error("Satellite imagery failed", error);
@@ -114,6 +126,7 @@ renderVisibleSites();
 map.on("moveend zoomend", renderVisibleSites);
 
 satelliteLayerToggle.addEventListener("change", () => setLayerEnabled(satelliteLayer, satelliteLayerToggle.checked));
+sarLayerToggle.addEventListener("change", () => setLayerEnabled(sarLayer, sarLayerToggle.checked));
 siteLayerToggle.addEventListener("change", () => setLayerEnabled(siteLayer, siteLayerToggle.checked));
 
 if ("serviceWorker" in navigator) {
@@ -266,6 +279,106 @@ function extractSatelliteLocations(raw: unknown): SatelliteLocation[] {
   });
 }
 
+async function loadSarImagery(): Promise<void> {
+  setSarStatus("Loading satellite locations...", true);
+  const raw = await fetchJson(NAVAL_BASES_URL);
+  const locations = extractSatelliteLocations(raw);
+
+  if (locations.length === 0) {
+    setSatelliteStatus("No satellite locations found.", false);
+    return;
+  }
+
+  setSarStatus(`Finding Sentinel-1 SAR imagery for ${locations.length} locations...`, true);
+  let loaded = 0;
+  let missing = 0;
+
+  const results = await Promise.allSettled(locations.map(async location => {
+    const item = await stacSearchLatestByBbox(SENTINEL_1_COLLECTION, location.bbox);
+    if (!item) {
+      missing += 1;
+      return;
+    }
+
+    addSarTileLayer(location, item);
+    loaded += 1;
+    setSarStatus(`Loaded satellite imagery for ${loaded}/${locations.length} locations...`, true);
+  }));
+
+  missing += results.filter(result => result.status === "rejected").length;
+  if (missing > 0) {
+    console.warn("Some sentinel-1 SAR locations failed to load", results.filter(result => result.status === "rejected"));
+  }
+
+  setSarStatus(
+    loaded > 0
+      ? `SAR imagery loaded for ${loaded} locations${missing > 0 ? `; ${missing} unavailable.` : "."}`
+      : "No SAR imagery found.",
+    false
+  );
+}
+
+function addSarTileLayer(location: SatelliteLocation, item: StacItem): void {
+  const params = new URLSearchParams({
+    collection: SENTINEL_1_COLLECTION,
+    item: item.id,
+    assets: SENTINEL_1_ASSET
+  });
+  const [west, south, east, north] = location.bbox;
+  const bounds = L.latLngBounds([south, west], [north, east]);
+  const layer = L.tileLayer(`${PLANETARY_COMPUTER_TILES}?${params.toString()}`, {
+    attribution: "Sentinel-1 SAR imagery &copy; ESA, rendered by Microsoft Planetary Computer",
+    bounds,
+    maxNativeZoom: 18,
+    maxZoom: 18,
+    opacity: 0.78,
+    pane: "sarPane",
+    updateWhenIdle: true,
+    updateWhenZooming: false,
+    keepBuffer: 1
+  });
+
+  layer.bindPopup(
+    `<strong>${escapeHtml(location.name)}</strong><br>Sentinel-1 ${escapeHtml(item.properties?.datetime?.slice(0, 10) ?? item.id)}`,
+    { closeButton: false }
+  );
+  layer.addTo(sarLayer);
+
+  L.rectangle(bounds, {
+    color: "#ffec99",
+    dashArray: "5 5",
+    fill: false,
+    interactive: false,
+    opacity: 0.95,
+    pane: "overlayPane",
+    weight: 2
+  }).addTo(sarLayer);
+}
+
+function extractSarLocations(raw: unknown): SatelliteLocation[] {
+  const entries = Array.isArray(raw)
+    ? raw
+    : isRecord(raw) && Array.isArray(raw.features)
+      ? raw.features
+      : isRecord(raw) && Array.isArray(raw.locations)
+        ? raw.locations
+        : [];
+
+  return entries.flatMap((entry, index) => {
+    try {
+      const bbox = extractBbox(entry);
+      return [{
+        id: extractId(entry, index),
+        name: extractName(entry, index),
+        bbox
+      }];
+    } catch (error) {
+      console.warn("Skipping satellite location without bounds", entry, error);
+      return [];
+    }
+  });
+}
+
 function extractBbox(entry: unknown): Bbox {
   if (Array.isArray(entry) && entry.length >= 4) return entry.slice(0, 4).map(Number) as Bbox;
   if (!isRecord(entry)) throw new Error("Location is not an object.");
@@ -326,6 +439,11 @@ function setLayerEnabled(layer: L.Layer, enabled: boolean): void {
 function setSatelliteStatus(message: string, isLoading: boolean): void {
   satelliteStatusElement.textContent = message;
   satelliteStatusElement.classList.toggle("loading", isLoading);
+}
+
+function setSarStatus(message: string, isLoading: boolean): void {
+  sarStatusElement.textContent = message;
+  sarStatusElement.classList.toggle("loading", isLoading);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
