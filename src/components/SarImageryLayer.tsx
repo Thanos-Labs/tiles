@@ -5,7 +5,8 @@ import { loadImageryLocations, PLANETARY_COMPUTER_TILES, stacSearchLatestByBbox 
 import type { SatelliteLocation, StacItem } from '../data/imagery';
 
 const COLLECTION = 'sentinel-1-rtc';
-const ASSET = 'vh';
+const ASSETS = ['vv', 'vh'];
+const FALSE_COLOR_EXPRESSION = 'vv;vh;vv/vh';
 
 type ImageryTile = {
   location: SatelliteLocation;
@@ -31,7 +32,7 @@ export function SarImageryLayer({ visible, onStatus }: { visible: boolean; onSta
       onStatus(`Finding Sentinel-1 SAR imagery for ${locations.length} locations...`);
       let missing = 0;
       const results = await Promise.allSettled(locations.map(async (location) => {
-        const item = await stacSearchLatestByBbox(COLLECTION, location.bbox);
+        const item = await stacSearchLatestByBbox(COLLECTION, location.bbox, ASSETS);
         if (!item) {
           missing += 1;
           return null;
@@ -63,7 +64,17 @@ export function SarImageryLayer({ visible, onStatus }: { visible: boolean; onSta
   if (!visible) return null;
 
   return tiles.map(({ location, item }) => {
-    const params = new URLSearchParams({ collection: COLLECTION, item: item.id, assets: ASSET });
+    const params = new URLSearchParams({
+      collection: COLLECTION,
+      item: item.id,
+      assets: ASSETS.join(','),
+      asset_as_band: 'true',
+      expression: FALSE_COLOR_EXPRESSION,
+      color_formula: 'gamma RGB 1.6 saturation 1.2',
+    });
+    params.append('rescale', '0,0.25');
+    params.append('rescale', '0,0.08');
+    params.append('rescale', '0,4');
     const [west, south, east, north] = location.bbox;
     const bounds = new LatLngBounds([south, west], [north, east]);
 
@@ -84,7 +95,7 @@ export function SarImageryLayer({ visible, onStatus }: { visible: boolean; onSta
           <Popup closeButton={false}>
             <strong>{location.name}</strong>
             <br />
-            Sentinel-1 {item.properties?.datetime?.slice(0, 10) ?? item.id}
+            Sentinel-1 RTC VV/VH false color {item.properties?.datetime?.slice(0, 10) ?? item.id}
           </Popup>
         </Rectangle>
       </Fragment>

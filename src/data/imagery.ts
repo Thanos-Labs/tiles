@@ -8,6 +8,7 @@ export type SatelliteLocation = {
 
 export type StacItem = {
   id: string;
+  assets?: Record<string, unknown>;
   properties?: {
     datetime?: string;
   };
@@ -21,16 +22,16 @@ export async function loadImageryLocations(): Promise<SatelliteLocation[]> {
   return extractSatelliteLocations(await fetchJson(NAVAL_BASES_URL));
 }
 
-export async function stacSearchLatestByBbox(collection: string, bbox: Bbox): Promise<StacItem | null> {
+export async function stacSearchLatestByBbox(collection: string, bbox: Bbox, requiredAssets: string[] = []): Promise<StacItem | null> {
   const params = new URLSearchParams({
     collections: collection,
     bbox: bbox.join(','),
-    limit: '1',
+    limit: requiredAssets.length > 0 ? '25' : '1',
     sortby: '-datetime',
   });
   const data = await fetchJson(`${STAC_API}/search?${params.toString()}`);
   if (!isRecord(data) || !Array.isArray(data.features)) return null;
-  return (data.features[0] as StacItem | undefined) ?? null;
+  return (data.features as StacItem[]).find((item) => requiredAssets.every((asset) => item.assets?.[asset])) ?? null;
 }
 
 function extractSatelliteLocations(raw: unknown): SatelliteLocation[] {
