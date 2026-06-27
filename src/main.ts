@@ -2,7 +2,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./styles.css";
 
-type SiteType = "port" | "naval";
+type SiteType = "port" | "naval" | "shipyard";
 type Site = [SiteType, string, number, number];
 type Bbox = [number, number, number, number];
 type SatelliteLocation = {
@@ -17,7 +17,7 @@ type StacItem = {
   };
 };
 
-const NAVAL_BASES_URL = "https://thanos-labs.github.io/naval-data/data/naval_bases.json";
+const POI_URL = "https://thanos-labs.github.io/naval-data/data/poi.json";
 const STAC_API = "https://planetarycomputer.microsoft.com/api/stac/v1";
 const PLANETARY_COMPUTER_TILES = "https://planetarycomputer.microsoft.com/api/data/v1/item/tiles/WebMercatorQuad/{z}/{x}/{y}@1x";
 const SATELLITE_COLLECTION = "sentinel-2-l2a";
@@ -31,7 +31,7 @@ app.innerHTML = `
   <section class="panel" aria-label="Map controls">
     <div class="layers" aria-label="Layers">
       <label class="toggle"><input id="satelliteLayerToggle" type="checkbox" checked> <span>Satellite imagery</span></label>
-      <label class="toggle"><input id="siteLayerToggle" type="checkbox" checked> <span>Ports and bases</span></label>
+      <label class="toggle"><input id="siteLayerToggle" type="checkbox" checked> <span>Ports, bases, and shipyards</span></label>
     </div>
     <p>Satellite imagery uses the latest Sentinel-2 visual asset available from Microsoft Planetary Computer for each location bounding box.</p>
     <p id="satelliteStatus" class="status">Loading satellite imagery...</p>
@@ -67,40 +67,7 @@ map.createPane("satellitePane");
 const satellitePane = map.getPane("satellitePane");
 if (satellitePane) satellitePane.style.zIndex = "250";
 
-const sites: Site[] = [
-  ["port", "Shanghai", 31.23, 121.49],
-  ["port", "Singapore", 1.26, 103.82],
-  ["port", "Ningbo-Zhoushan", 29.88, 121.55],
-  ["port", "Shenzhen", 22.55, 114.06],
-  ["port", "Busan", 35.1, 129.04],
-  ["port", "Rotterdam", 51.95, 4.14],
-  ["port", "Antwerp-Bruges", 51.28, 4.27],
-  ["port", "Hamburg", 53.54, 9.97],
-  ["port", "Los Angeles / Long Beach", 33.75, -118.22],
-  ["port", "New York / New Jersey", 40.67, -74.04],
-  ["port", "Houston", 29.73, -95.26],
-  ["port", "Santos", -23.96, -46.3],
-  ["port", "Durban", -29.88, 31.05],
-  ["port", "Jebel Ali", 25.01, 55.06],
-  ["port", "Port Klang", 3.0, 101.39],
-  ["port", "Tanjung Pelepas", 1.36, 103.55],
-  ["port", "Piraeus", 37.94, 23.63],
-  ["port", "Algeciras", 36.13, -5.44],
-  ["port", "Colombo", 6.94, 79.84],
-  ["port", "Sydney", -33.85, 151.2],
-  ["naval", "Norfolk Naval Station", 36.95, -76.31],
-  ["naval", "San Diego Naval Base", 32.68, -117.16],
-  ["naval", "Pearl Harbor", 21.35, -157.95],
-  ["naval", "Portsmouth Naval Base", 50.81, -1.1],
-  ["naval", "Toulon Naval Base", 43.11, 5.93],
-  ["naval", "Rota Naval Base", 36.64, -6.35],
-  ["naval", "Yokosuka Naval Base", 35.29, 139.67],
-  ["naval", "Sasebo Naval Base", 33.16, 129.72],
-  ["naval", "Changi Naval Base", 1.31, 104.04],
-  ["naval", "Visakhapatnam Naval Base", 17.69, 83.28],
-  ["naval", "Garden Island Naval Base", -33.86, 151.23],
-  ["naval", "Severomorsk", 69.07, 33.42]
-];
+let sites: Site[] = [];
 
 const siteLayer = L.layerGroup().addTo(map);
 const satelliteLayer = L.layerGroup().addTo(map);
@@ -149,6 +116,7 @@ function renderVisibleSites(): void {
     for (let world = minWorld; world <= maxWorld; world += 1) {
       const displayLng = lng + world * 360;
       if (!bounds.contains([lat, displayLng])) continue;
+      const typeLabel = type === "port" ? "Port" : type === "shipyard" ? "Shipyard" : "Naval base";
       L.marker([lat, displayLng], {
         riseOnHover: true,
         icon: L.divIcon({
@@ -158,7 +126,7 @@ function renderVisibleSites(): void {
           iconAnchor: [8, 8]
         })
       })
-        .bindPopup(`<strong>${name}</strong><br>${type === "port" ? "Major port" : "Major naval base"}`, {
+        .bindPopup(`<strong>${escapeHtml(name)}</strong><br>${typeLabel}`, {
           closeButton: false
         })
         .addTo(siteLayer);
@@ -168,7 +136,9 @@ function renderVisibleSites(): void {
 
 async function loadSatelliteImagery(): Promise<void> {
   setSatelliteStatus("Loading satellite locations...", true);
-  const raw = await fetchJson(NAVAL_BASES_URL);
+  const raw = await fetchJson(POI_URL);
+  sites = extractSites(raw);
+  renderVisibleSites();
   const locations = extractSatelliteLocations(raw);
 
   if (locations.length === 0) {
@@ -243,13 +213,7 @@ function addSatelliteTileLayer(location: SatelliteLocation, item: StacItem): voi
 }
 
 function extractSatelliteLocations(raw: unknown): SatelliteLocation[] {
-  const entries = Array.isArray(raw)
-    ? raw
-    : isRecord(raw) && Array.isArray(raw.features)
-      ? raw.features
-      : isRecord(raw) && Array.isArray(raw.locations)
-        ? raw.locations
-        : [];
+  const entries = collectionEntries(raw);
 
   return entries.flatMap((entry, index) => {
     try {
@@ -264,6 +228,52 @@ function extractSatelliteLocations(raw: unknown): SatelliteLocation[] {
       return [];
     }
   });
+}
+
+function extractSites(raw: unknown): Site[] {
+  return collectionEntries(raw).flatMap((entry): Site[] => {
+    try {
+      const type = extractSiteType(entry);
+      if (!type) return [];
+      const center = extractCenter(entry);
+      return [[type, extractName(entry, 0), center.lat, center.lon]];
+    } catch (error) {
+      console.warn("Skipping site without center", entry, error);
+      return [];
+    }
+  });
+}
+
+function collectionEntries(raw: unknown): unknown[] {
+  if (Array.isArray(raw)) return raw;
+  if (!isRecord(raw)) return [];
+  if (Array.isArray(raw.features)) return raw.features;
+  if (Array.isArray(raw.locations)) return raw.locations;
+  return Object.values(raw);
+}
+
+function extractSiteType(entry: unknown): SiteType | null {
+  if (!isRecord(entry)) return null;
+  if (entry.type === "port") return "port";
+  if (entry.type === "shipyard") return "shipyard";
+  if (entry.type === "naval_base") return "naval";
+  return null;
+}
+
+function extractCenter(entry: unknown): { lat: number; lon: number } {
+  if (!isRecord(entry)) throw new Error("Location is not an object.");
+
+  if (isRecord(entry.center)) {
+    const lat = Number(entry.center.lat);
+    const lon = Number(entry.center.lon);
+    if (Number.isFinite(lat) && Number.isFinite(lon)) return { lat, lon };
+  }
+
+  const [west, south, east, north] = extractBbox(entry);
+  return {
+    lat: (north + south) / 2,
+    lon: (east + west) / 2
+  };
 }
 
 function extractBbox(entry: unknown): Bbox {
@@ -294,7 +304,7 @@ function extractId(entry: unknown, index: number): string {
 function extractName(entry: unknown, index: number): string {
   if (!isRecord(entry)) return `Location ${index + 1}`;
   const properties = isRecord(entry.properties) ? entry.properties : undefined;
-  return String(entry.name ?? properties?.name ?? entry.id ?? `Location ${index + 1}`);
+  return String(entry.proper ?? entry.name ?? properties?.name ?? entry.id ?? `Location ${index + 1}`);
 }
 
 async function stacSearchLatestByBbox(collection: string, bbox: Bbox): Promise<StacItem | null> {

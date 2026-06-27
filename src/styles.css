@@ -110,13 +110,18 @@ body {
 }
 
 .site-marker.port {
-  background: #ffcc4d;
-  color: #ffcc4d;
+  background: #48d7ff;
+  color: #48d7ff;
 }
 
 .site-marker.naval {
   background: #ff6b6b;
   color: #ff6b6b;
+}
+
+.site-marker.shipyard {
+  background: #ffb86b;
+  color: #ffb86b;
 }
 
 .leaflet-popup-content-wrapper,
