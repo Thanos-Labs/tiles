@@ -3,8 +3,14 @@ import "leaflet/dist/leaflet.css";
 import "./styles.css";
 
 type SiteType = "port" | "naval" | "shipyard";
-type Site = [SiteType, string, number, number];
 type Bbox = [number, number, number, number];
+type Site = {
+  type: SiteType;
+  name: string;
+  lat: number;
+  lng: number;
+  bbox: Bbox;
+};
 type SatelliteLocation = {
   id: string;
   name: string;
@@ -107,7 +113,8 @@ function renderVisibleSites(): void {
   const bounds = map.getBounds().pad(0.08);
   siteLayer.clearLayers();
 
-  for (const [type, name, lat, lng] of sites) {
+  for (const site of sites) {
+    const { type, name, lat, lng } = site;
     const west = bounds.getWest();
     const east = bounds.getEast();
     const minWorld = Math.floor((west - lng) / 360);
@@ -117,6 +124,21 @@ function renderVisibleSites(): void {
       const displayLng = lng + world * 360;
       if (!bounds.contains([lat, displayLng])) continue;
       const typeLabel = type === "port" ? "Port" : type === "shipyard" ? "Shipyard" : "Naval base";
+      const [bboxWest, bboxSouth, bboxEast, bboxNorth] = site.bbox;
+      const outlineBounds = L.latLngBounds(
+        [bboxSouth, bboxWest + world * 360],
+        [bboxNorth, bboxEast + world * 360]
+      );
+
+      L.rectangle(outlineBounds, {
+        color: siteColor(type),
+        dashArray: "5 5",
+        fill: false,
+        interactive: false,
+        opacity: 0.95,
+        weight: 2
+      }).addTo(siteLayer);
+
       L.marker([lat, displayLng], {
         riseOnHover: true,
         icon: L.divIcon({
@@ -200,16 +222,6 @@ function addSatelliteTileLayer(location: SatelliteLocation, item: StacItem): voi
     { closeButton: false }
   );
   layer.addTo(satelliteLayer);
-
-  L.rectangle(bounds, {
-    color: "#ffec99",
-    dashArray: "5 5",
-    fill: false,
-    interactive: false,
-    opacity: 0.95,
-    pane: "overlayPane",
-    weight: 2
-  }).addTo(satelliteLayer);
 }
 
 function extractSatelliteLocations(raw: unknown): SatelliteLocation[] {
@@ -236,7 +248,13 @@ function extractSites(raw: unknown): Site[] {
       const type = extractSiteType(entry);
       if (!type) return [];
       const center = extractCenter(entry);
-      return [[type, extractName(entry, 0), center.lat, center.lon]];
+      return [{
+        type,
+        name: extractName(entry, 0),
+        lat: center.lat,
+        lng: center.lon,
+        bbox: extractBbox(entry)
+      }];
     } catch (error) {
       console.warn("Skipping site without center", entry, error);
       return [];
@@ -336,6 +354,12 @@ function setLayerEnabled(layer: L.Layer, enabled: boolean): void {
 function setSatelliteStatus(message: string, isLoading: boolean): void {
   satelliteStatusElement.textContent = message;
   satelliteStatusElement.classList.toggle("loading", isLoading);
+}
+
+function siteColor(type: SiteType): string {
+  if (type === "port") return "#ffcc4d";
+  if (type === "shipyard") return "#ff9f43";
+  return "#ff6b6b";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
