@@ -24,8 +24,7 @@ export type StacItem = {
   };
 };
 
-// const POI_URL = 'https://thanos-labs.github.io/naval-data/data/poi.json';
-export const POI_URL = 'http://localhost:5173/data/poi.json';
+export const POI_URL = 'https://thanos-labs.github.io/naval-data/data/poi.json';
 export const STAC_API = 'https://planetarycomputer.microsoft.com/api/stac/v1';
 export const PLANETARY_COMPUTER_TILES = 'https://planetarycomputer.microsoft.com/api/data/v1/item/tiles/WebMercatorQuad/{z}/{x}/{y}@1x';
 
