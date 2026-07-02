@@ -18,15 +18,18 @@ export type SatelliteLocation = {
 
 export type StacItem = {
   id: string;
+  bbox?: Bbox;
   assets?: Record<string, unknown>;
   properties?: {
     datetime?: string;
+    'eo:cloud_cover'?: number;
   };
 };
 
 export const POI_URL = 'https://thanos-labs.github.io/naval-data/data/poi.json';
 export const STAC_API = 'https://planetarycomputer.microsoft.com/api/stac/v1';
 export const PLANETARY_COMPUTER_TILES = 'https://planetarycomputer.microsoft.com/api/data/v1/item/tiles/WebMercatorQuad/{z}/{x}/{y}@1x';
+export const IMAGERY_MIN_ZOOM = 9;
 
 export async function loadImageryLocations(): Promise<SatelliteLocation[]> {
   return extractSatelliteLocations(await fetchJson(POI_URL));
@@ -40,12 +43,48 @@ export async function stacSearchLatestByBbox(collection: string, bbox: Bbox, req
   const params = new URLSearchParams({
     collections: collection,
     bbox: bbox.join(','),
-    limit: requiredAssets.length > 0 ? '25' : '1',
+    limit: '25',
     sortby: '-datetime',
   });
   const data = await fetchJson(`${STAC_API}/search?${params.toString()}`);
   if (!isRecord(data) || !Array.isArray(data.features)) return null;
-  return (data.features as StacItem[]).find((item) => requiredAssets.every((asset) => item.assets?.[asset])) ?? null;
+  return selectBestStacItem(data.features as StacItem[], bbox, requiredAssets);
+}
+
+function selectBestStacItem(items: StacItem[], targetBbox: Bbox, requiredAssets: string[]): StacItem | null {
+  const candidates = items.filter((item) => requiredAssets.every((asset) => item.assets?.[asset]));
+  if (candidates.length === 0) return null;
+
+  return [...candidates].sort((a, b) => (
+    coverageRatio(b.bbox, targetBbox) - coverageRatio(a.bbox, targetBbox) ||
+    cloudCover(a) - cloudCover(b) ||
+    datetimeValue(b) - datetimeValue(a)
+  ))[0] ?? null;
+}
+
+function coverageRatio(itemBbox: Bbox | undefined, targetBbox: Bbox): number {
+  if (!itemBbox) return 0;
+  return bboxIntersectionArea(itemBbox, targetBbox) / bboxArea(targetBbox);
+}
+
+function bboxIntersectionArea(a: Bbox, b: Bbox): number {
+  const west = Math.max(a[0], b[0]);
+  const south = Math.max(a[1], b[1]);
+  const east = Math.min(a[2], b[2]);
+  const north = Math.min(a[3], b[3]);
+  return Math.max(0, east - west) * Math.max(0, north - south);
+}
+
+function bboxArea([west, south, east, north]: Bbox): number {
+  return Math.max(0, east - west) * Math.max(0, north - south);
+}
+
+function cloudCover(item: StacItem): number {
+  return item.properties?.['eo:cloud_cover'] ?? Number.POSITIVE_INFINITY;
+}
+
+function datetimeValue(item: StacItem): number {
+  return item.properties?.datetime ? Date.parse(item.properties.datetime) || 0 : 0;
 }
 
 function extractSatelliteLocations(raw: unknown): SatelliteLocation[] {
