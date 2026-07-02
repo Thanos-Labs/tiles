@@ -1,5 +1,6 @@
 import { MapContainer, Pane, TileLayer } from 'react-leaflet';
 import type { LatLngExpression } from 'leaflet';
+import { CompareImageryLayer } from './CompareImageryLayer';
 import { PortsAndBasesLayer } from './PortsAndBasesLayer';
 import { SarImageryLayer } from './SarImageryLayer';
 import { SatelliteImageryLayer } from './SatelliteImageryLayer';
@@ -7,15 +8,19 @@ import { SatelliteImageryLayer } from './SatelliteImageryLayer';
 export function MapView({
   showSatellite,
   showSar,
+  showCompare,
   showSites,
   onSatelliteStatus,
   onSarStatus,
+  onCompareStatus,
 }: {
   showSatellite: boolean;
   showSar: boolean;
+  showCompare: boolean;
   showSites: boolean;
   onSatelliteStatus: (status: string) => void;
   onSarStatus: (status: string) => void;
+  onCompareStatus: (status: string) => void;
 }) {
   const center: LatLngExpression = [16, -155];
 
@@ -31,11 +36,12 @@ export function MapView({
         keepBuffer={2}
       />
       <Pane name="satellitePane" style={{ zIndex: 250 }}>
-        <SatelliteImageryLayer visible={showSatellite} onStatus={onSatelliteStatus} />
+        <SatelliteImageryLayer visible={showSatellite && !showCompare} onStatus={onSatelliteStatus} />
       </Pane>
       <Pane name="sarPane" style={{ zIndex: 260 }}>
-        <SarImageryLayer visible={showSar} onStatus={onSarStatus} />
+        <SarImageryLayer visible={showSar && !showCompare} onStatus={onSarStatus} />
       </Pane>
+      <CompareImageryLayer visible={showCompare} onStatus={onCompareStatus} />
       <PortsAndBasesLayer visible={showSites} />
     </MapContainer>
   );

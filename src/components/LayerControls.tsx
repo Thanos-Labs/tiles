@@ -1,15 +1,18 @@
 import type { Dispatch, SetStateAction } from 'react';
 import type { LayerVisibility } from '../App';
+import { IMAGERY_MIN_ZOOM } from '../data/imagery';
 
 export function LayerControls({
   visible,
   satelliteStatus,
   sarStatus,
+  compareStatus,
   onChange,
 }: {
   visible: LayerVisibility;
   satelliteStatus: string;
   sarStatus: string;
+  compareStatus: string;
   onChange: Dispatch<SetStateAction<LayerVisibility>>;
 }) {
   return (
@@ -26,15 +29,22 @@ export function LayerControls({
           onChange={(checked) => onChange((current) => ({ ...current, sar: checked }))}
         />
         <Toggle
+          checked={visible.compare}
+          label="Compare mode"
+          onChange={(checked) => onChange((current) => ({ ...current, compare: checked }))}
+        />
+        <Toggle
           checked={visible.sites}
           label="Ports, bases, and shipyards"
           onChange={(checked) => onChange((current) => ({ ...current, sites: checked }))}
         />
       </div>
-      <p>Satellite imagery uses the latest Sentinel-2 visual asset available from Microsoft Planetary Computer for each location bounding box.</p>
-      <p>SAR imagery uses the latest Sentinel-1 VH asset available from Microsoft Planetary Computer for each location bounding box.</p>
+      <p>Satellite imagery uses the best available Sentinel-2 visual asset from Microsoft Planetary Computer for each location bounding box.</p>
+      <p>SAR imagery uses the best available Sentinel-1 VV/VH assets from Microsoft Planetary Computer for each location bounding box.</p>
+      <p>Imagery tiles and compare sliders display at zoom {IMAGERY_MIN_ZOOM}+.</p>
       <p className="status">{satelliteStatus}</p>
       <p className="status">{sarStatus}</p>
+      <p className="status">{compareStatus}</p>
     </section>
   );
 }

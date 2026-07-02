@@ -130,6 +130,27 @@ body {
   color: #ffb86b;
 }
 
+.compare-slider-handle {
+  display: grid;
+  place-items: center;
+}
+
+.compare-slider-handle span {
+  display: block;
+  width: 18px;
+  height: 18px;
+  box-sizing: border-box;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  background: #071923;
+  box-shadow: 0 0 0 2px rgb(0 0 0 / 38%), 0 0 14px rgb(49 201 214 / 70%);
+  cursor: ew-resize;
+}
+
+.compare-divider-line {
+  filter: drop-shadow(0 0 3px rgb(0 0 0 / 85%));
+}
+
 .leaflet-popup-content-wrapper,
 .leaflet-popup-tip {
   background: #071923;
