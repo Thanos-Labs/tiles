@@ -1,8 +1,7 @@
-import { LatLngBounds } from 'leaflet';
 import { useEffect, useState } from 'react';
-import { TileLayer } from 'react-leaflet';
-import { loadImageryLocations, PLANETARY_COMPUTER_TILES, stacSearchLatestByBbox } from '../data/imagery';
+import { IMAGERY_MIN_ZOOM, loadImageryLocations, PLANETARY_COMPUTER_TILES, stacSearchLatestByBbox } from '../data/imagery';
 import type { SatelliteLocation, StacItem } from '../data/imagery';
+import { ClippedTileLayer } from './ClippedTileLayer';
 
 const COLLECTION = 'sentinel-1-rtc';
 const ASSETS = ['vv', 'vh'];
@@ -75,21 +74,15 @@ export function SarImageryLayer({ visible, onStatus }: { visible: boolean; onSta
     params.append('rescale', '0,0.25');
     params.append('rescale', '0,0.08');
     params.append('rescale', '0,4');
-    const [west, south, east, north] = location.bbox;
-    const bounds = new LatLngBounds([south, west], [north, east]);
 
     return (
-      <TileLayer
+      <ClippedTileLayer
         key={`${location.id}:${item.id}`}
         attribution="Sentinel-1 SAR imagery &copy; ESA, rendered by Microsoft Planetary Computer"
+        bbox={location.bbox}
         url={`${PLANETARY_COMPUTER_TILES}?${params.toString()}`}
-        bounds={bounds}
-        maxNativeZoom={18}
-        maxZoom={18}
+        minZoom={IMAGERY_MIN_ZOOM}
         opacity={0.78}
-        updateWhenIdle
-        updateWhenZooming={false}
-        keepBuffer={1}
       />
     );
   });
