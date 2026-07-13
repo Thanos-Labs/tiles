@@ -15,25 +15,32 @@ export function LayerControls({
   compareStatus: string;
   onChange: Dispatch<SetStateAction<LayerVisibility>>;
 }) {
+  const toggleImagery = (layer: 'satellite' | 'sar' | 'compare', checked: boolean) => onChange((current) => ({
+    ...current,
+    satellite: checked && layer === 'satellite',
+    sar: checked && layer === 'sar',
+    compare: checked && layer === 'compare',
+  }));
+
   return (
     <section className="panel" aria-label="Map controls">
       <div className="layers" aria-label="Layers">
-        <Toggle
+        <LayerOption
           checked={visible.satellite}
           label="Satellite imagery"
-          onChange={(checked) => onChange((current) => ({ ...current, satellite: checked }))}
+          onChange={(checked) => toggleImagery('satellite', checked)}
         />
-        <Toggle
+        <LayerOption
           checked={visible.sar}
           label="SAR imagery"
-          onChange={(checked) => onChange((current) => ({ ...current, sar: checked }))}
+          onChange={(checked) => toggleImagery('sar', checked)}
         />
-        <Toggle
+        <LayerOption
           checked={visible.compare}
           label="Compare mode"
-          onChange={(checked) => onChange((current) => ({ ...current, compare: checked }))}
+          onChange={(checked) => toggleImagery('compare', checked)}
         />
-        <Toggle
+        <LayerOption
           checked={visible.sites}
           label="Ports, bases, and shipyards"
           onChange={(checked) => onChange((current) => ({ ...current, sites: checked }))}
@@ -49,7 +56,7 @@ export function LayerControls({
   );
 }
 
-function Toggle({
+function LayerOption({
   checked,
   label,
   onChange,

@@ -11,7 +11,7 @@ export type LayerVisibility = {
 
 const initialVisibility: LayerVisibility = {
   satellite: true,
-  sar: true,
+  sar: false,
   compare: false,
   sites: true,
 };
