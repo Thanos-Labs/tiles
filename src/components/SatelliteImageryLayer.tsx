@@ -1,8 +1,7 @@
-import { LatLngBounds } from 'leaflet';
 import { useEffect, useState } from 'react';
-import { TileLayer } from 'react-leaflet';
-import { loadImageryLocations, PLANETARY_COMPUTER_TILES, stacSearchLatestByBbox } from '../data/imagery';
+import { IMAGERY_MIN_ZOOM, loadImageryLocations, PLANETARY_COMPUTER_TILES, stacSearchLatestByBbox } from '../data/imagery';
 import type { SatelliteLocation, StacItem } from '../data/imagery';
+import { ClippedTileLayer } from './ClippedTileLayer';
 
 const COLLECTION = 'sentinel-2-l2a';
 const ASSETS = 'visual';
@@ -31,7 +30,7 @@ export function SatelliteImageryLayer({ visible, onStatus }: { visible: boolean;
       onStatus(`Finding Sentinel-2 imagery for ${locations.length} locations...`);
       let missing = 0;
       const results = await Promise.allSettled(locations.map(async (location) => {
-        const item = await stacSearchLatestByBbox(COLLECTION, location.bbox);
+        const item = await stacSearchLatestByBbox(COLLECTION, location.bbox, [ASSETS]);
         if (!item) {
           missing += 1;
           return null;
@@ -64,21 +63,15 @@ export function SatelliteImageryLayer({ visible, onStatus }: { visible: boolean;
 
   return tiles.map(({ location, item }) => {
     const params = new URLSearchParams({ collection: COLLECTION, item: item.id, assets: ASSETS });
-    const [west, south, east, north] = location.bbox;
-    const bounds = new LatLngBounds([south, west], [north, east]);
 
     return (
-      <TileLayer
+      <ClippedTileLayer
         key={`${location.id}:${item.id}`}
         attribution="Sentinel-2 imagery &copy; ESA, rendered by Microsoft Planetary Computer"
+        bbox={location.bbox}
         url={`${PLANETARY_COMPUTER_TILES}?${params.toString()}`}
-        bounds={bounds}
-        maxNativeZoom={18}
-        maxZoom={18}
+        minZoom={IMAGERY_MIN_ZOOM}
         opacity={0.78}
-        updateWhenIdle
-        updateWhenZooming={false}
-        keepBuffer={1}
       />
     );
   });
