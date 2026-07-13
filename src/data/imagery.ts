@@ -30,6 +30,7 @@ export const POI_URL = 'https://thanos-labs.github.io/naval-data/data/poi.json';
 export const STAC_API = 'https://planetarycomputer.microsoft.com/api/stac/v1';
 export const PLANETARY_COMPUTER_TILES = 'https://planetarycomputer.microsoft.com/api/data/v1/item/tiles/WebMercatorQuad/{z}/{x}/{y}@1x';
 export const IMAGERY_MIN_ZOOM = 9;
+const jsonRequests = new Map<string, Promise<unknown>>();
 
 export async function loadImageryLocations(): Promise<SatelliteLocation[]> {
   return extractSatelliteLocations(await fetchJson(POI_URL));
@@ -185,9 +186,20 @@ function extractName(entry: unknown, index: number): string {
 }
 
 async function fetchJson(url: string): Promise<unknown> {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`GET ${url} failed: ${response.status} ${response.statusText}`);
-  return response.json() as Promise<unknown>;
+  const existing = jsonRequests.get(url);
+  if (existing) return existing;
+
+  const request = fetch(url)
+    .then((response) => {
+      if (!response.ok) throw new Error(`GET ${url} failed: ${response.status} ${response.statusText}`);
+      return response.json() as Promise<unknown>;
+    })
+    .catch((error: unknown) => {
+      jsonRequests.delete(url);
+      throw error;
+    });
+  jsonRequests.set(url, request);
+  return request;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
