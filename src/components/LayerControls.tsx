@@ -1,18 +1,14 @@
 import type { Dispatch, SetStateAction } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 import type { LayerVisibility } from '../App';
-import { IMAGERY_MIN_ZOOM } from '../data/imagery';
 
 export function LayerControls({
   visible,
-  satelliteStatus,
-  sarStatus,
-  compareStatus,
   onChange,
 }: {
   visible: LayerVisibility;
-  satelliteStatus: string;
-  sarStatus: string;
-  compareStatus: string;
   onChange: Dispatch<SetStateAction<LayerVisibility>>;
 }) {
   const toggleImagery = (layer: 'satellite' | 'sar' | 'compare', checked: boolean) => onChange((current) => ({
@@ -23,52 +19,33 @@ export function LayerControls({
   }));
 
   return (
-    <section className="panel" aria-label="Map controls">
-      <div className="layers" aria-label="Layers">
-        <LayerOption
-          checked={visible.satellite}
-          label="Satellite imagery"
-          onChange={(checked) => toggleImagery('satellite', checked)}
-        />
-        <LayerOption
-          checked={visible.sar}
-          label="SAR imagery"
-          onChange={(checked) => toggleImagery('sar', checked)}
-        />
-        <LayerOption
-          checked={visible.compare}
-          label="Compare mode"
-          onChange={(checked) => toggleImagery('compare', checked)}
-        />
-        <LayerOption
-          checked={visible.sites}
-          label="Ports, bases, and shipyards"
-          onChange={(checked) => onChange((current) => ({ ...current, sites: checked }))}
-        />
-      </div>
-      <p>Satellite imagery uses the best available Sentinel-2 visual asset from Microsoft Planetary Computer for each location bounding box.</p>
-      <p>SAR imagery uses the best available Sentinel-1 VV/VH assets from Microsoft Planetary Computer for each location bounding box.</p>
-      <p>Imagery tiles and compare sliders display at zoom {IMAGERY_MIN_ZOOM}+.</p>
-      <p className="status">{satelliteStatus}</p>
-      <p className="status">{sarStatus}</p>
-      <p className="status">{compareStatus}</p>
-    </section>
-  );
-}
-
-function LayerOption({
-  checked,
-  label,
-  onChange,
-}: {
-  checked: boolean;
-  label: string;
-  onChange: (checked: boolean) => void;
-}) {
-  return (
-    <label className="toggle">
-      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.currentTarget.checked)} />
-      <span>{label}</span>
-    </label>
+    <Card size="sm" role="region" aria-label="Map controls">
+      <CardHeader>
+        <CardTitle>Layers</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <fieldset className="flex flex-col gap-3" aria-label="Imagery">
+          <Label>
+            <Checkbox checked={visible.satellite} onCheckedChange={(checked) => toggleImagery('satellite', checked)} />
+            Optical
+          </Label>
+          <Label>
+            <Checkbox checked={visible.sar} onCheckedChange={(checked) => toggleImagery('sar', checked)} />
+            SAR
+          </Label>
+          <Label>
+            <Checkbox checked={visible.compare} onCheckedChange={(checked) => toggleImagery('compare', checked)} />
+            Optical - SAR
+          </Label>
+        </fieldset>
+        <Label>
+          <Checkbox
+            checked={visible.sites}
+            onCheckedChange={(checked) => onChange((current) => ({ ...current, sites: checked }))}
+          />
+          AOIs and POIs
+        </Label>
+      </CardContent>
+    </Card>
   );
 }

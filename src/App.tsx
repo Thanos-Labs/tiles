@@ -16,31 +16,24 @@ const initialVisibility: LayerVisibility = {
   sites: true,
 };
 
+const ignoreStatus = () => {};
+
 export function App() {
   const [visible, setVisible] = useState(initialVisibility);
-  const [satelliteStatus, setSatelliteStatus] = useState('Loading satellite imagery...');
-  const [sarStatus, setSarStatus] = useState('Loading SAR imagery...');
-  const [compareStatus, setCompareStatus] = useState('Compare mode is off.');
 
   return (
-    <main className="app-shell" aria-label="Satellite map">
+    <main className="dark relative size-full bg-background" aria-label="Satellite map">
       <MapView
         showSatellite={visible.satellite}
         showSar={visible.sar}
         showCompare={visible.compare}
         showSites={visible.sites}
-        onSatelliteStatus={setSatelliteStatus}
-        onSarStatus={setSarStatus}
-        onCompareStatus={setCompareStatus}
+        onSatelliteStatus={ignoreStatus}
+        onSarStatus={ignoreStatus}
+        onCompareStatus={ignoreStatus}
       />
-      <div className="controls-region">
-        <LayerControls
-          visible={visible}
-          satelliteStatus={satelliteStatus}
-          sarStatus={sarStatus}
-          compareStatus={compareStatus}
-          onChange={setVisible}
-        />
+      <div className="fixed top-4 left-4 z-[1000] w-[calc(100%-2rem)] max-w-xs">
+        <LayerControls visible={visible} onChange={setVisible} />
       </div>
     </main>
   );
