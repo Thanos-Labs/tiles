@@ -1,11 +1,11 @@
 import L from 'leaflet';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMap, useMapEvents } from 'react-leaflet';
-import { IMAGERY_MIN_ZOOM, loadImageryLocations, PLANETARY_COMPUTER_TILES, stacSearchLatestByBbox } from '../data/imagery';
+import { loadImageryLocations, PLANETARY_COMPUTER_TILES, stacSearchLatestByBbox } from '../data/imagery';
 import type { Bbox, SatelliteLocation, StacItem } from '../data/imagery';
 import { attachTileClip } from '../lib/tileClip';
 
-const COMPARE_MIN_ZOOM = IMAGERY_MIN_ZOOM;
+const COMPARE_MIN_ZOOM = 2;
 const OPTICAL_COLLECTION = 'sentinel-2-l2a';
 const OPTICAL_ASSETS = 'visual';
 const SAR_COLLECTION = 'sentinel-1-rtc';
@@ -206,6 +206,7 @@ function CompareTilePair({
       attribution: 'Sentinel-1 SAR imagery &copy; ESA, rendered by Microsoft Planetary Computer',
       bounds,
       maxNativeZoom: 18,
+      minNativeZoom: 3,
       maxZoom: 18,
       opacity: 1,
       pane: sarPaneName,
@@ -217,6 +218,7 @@ function CompareTilePair({
       attribution: 'Sentinel-2 imagery &copy; ESA, rendered by Microsoft Planetary Computer',
       bounds,
       maxNativeZoom: 18,
+      minNativeZoom: 3,
       maxZoom: 18,
       opacity: 1,
       pane: opticalPaneName,
