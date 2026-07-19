@@ -12,11 +12,15 @@ export function ClippedTileLayer({
   pane,
   url,
   minZoom,
+  minNativeZoom,
+  maxZoom,
 }: {
   attribution: string;
   bbox: Bbox;
   className?: string;
   minZoom?: number;
+  minNativeZoom?: number;
+  maxZoom?: number;
   opacity: number;
   pane?: string;
   url: string;
@@ -30,7 +34,8 @@ export function ClippedTileLayer({
       attribution,
       bounds: new L.LatLngBounds([south, west], [north, east]),
       maxNativeZoom: 18,
-      maxZoom: 18,
+      minNativeZoom,
+      maxZoom: maxZoom ?? 18,
       minZoom,
       opacity,
       updateWhenIdle: true,
@@ -49,7 +54,7 @@ export function ClippedTileLayer({
       clip.detach();
       map.removeLayer(layer);
     };
-  }, [attribution, bboxKey, className, map, opacity, pane, url]);
+  }, [attribution, bboxKey, className, map, maxZoom, minNativeZoom, minZoom, opacity, pane, url]);
 
   return null;
 }

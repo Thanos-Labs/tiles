@@ -1,4 +1,5 @@
 export type Bbox = [number, number, number, number];
+export type DateRange = { start: string; end: string };
 export type SiteType = 'port' | 'naval' | 'shipyard';
 
 export type Site = {
@@ -40,7 +41,11 @@ export async function loadSites(): Promise<Site[]> {
   return extractSites(await fetchJson(POI_URL));
 }
 
-export async function stacSearchLatestByBbox(collection: string, bbox: Bbox, requiredAssets: string[] = []): Promise<StacItem | null> {
+export async function stacSearchLatestByBbox(
+  collection: string,
+  bbox: Bbox,
+  requiredAssets: string[] = [],
+): Promise<StacItem | null> {
   const params = new URLSearchParams({
     collections: collection,
     bbox: bbox.join(','),

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { IMAGERY_MIN_ZOOM, loadImageryLocations, PLANETARY_COMPUTER_TILES, stacSearchLatestByBbox } from '../data/imagery';
+import { loadImageryLocations, PLANETARY_COMPUTER_TILES, stacSearchLatestByBbox } from '../data/imagery';
 import type { SatelliteLocation, StacItem } from '../data/imagery';
 import { ClippedTileLayer } from './ClippedTileLayer';
 
@@ -81,7 +81,7 @@ export function SarImageryLayer({ visible, onStatus }: { visible: boolean; onSta
         attribution="Sentinel-1 SAR imagery &copy; ESA, rendered by Microsoft Planetary Computer"
         bbox={location.bbox}
         url={`${PLANETARY_COMPUTER_TILES}?${params.toString()}`}
-        minZoom={IMAGERY_MIN_ZOOM}
+        minNativeZoom={3}
         opacity={0.78}
       />
     );

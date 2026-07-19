@@ -4,23 +4,22 @@ import { CompareImageryLayer } from './CompareImageryLayer';
 import { PortsAndBasesLayer } from './PortsAndBasesLayer';
 import { SarImageryLayer } from './SarImageryLayer';
 import { SatelliteImageryLayer } from './SatelliteImageryLayer';
+import { TimelineImageryLayer } from './TimelineImageryLayer';
+import type { TimelineRequest } from './TimelineImageryLayer';
+import type { ImageryLayer } from './LayerControls';
+
+const ignoreStatus = () => {};
 
 export function MapView({
-  showSatellite,
-  showSar,
-  showCompare,
-  showSites,
-  onSatelliteStatus,
-  onSarStatus,
-  onCompareStatus,
+  view,
+  layer,
+  sitesVisible,
+  timelineRequest,
 }: {
-  showSatellite: boolean;
-  showSar: boolean;
-  showCompare: boolean;
-  showSites: boolean;
-  onSatelliteStatus: (status: string) => void;
-  onSarStatus: (status: string) => void;
-  onCompareStatus: (status: string) => void;
+  view: 'locations' | 'timeline';
+  layer: ImageryLayer;
+  sitesVisible: boolean;
+  timelineRequest: TimelineRequest | null;
 }) {
   const center: LatLngExpression = [16, -155];
 
@@ -35,14 +34,20 @@ export function MapView({
         updateWhenZooming={false}
         keepBuffer={2}
       />
-      <Pane name="satellitePane" style={{ zIndex: 250 }}>
-        <SatelliteImageryLayer visible={showSatellite && !showCompare} onStatus={onSatelliteStatus} />
-      </Pane>
-      <Pane name="sarPane" style={{ zIndex: 260 }}>
-        <SarImageryLayer visible={showSar && !showCompare} onStatus={onSarStatus} />
-      </Pane>
-      <CompareImageryLayer visible={showCompare} onStatus={onCompareStatus} />
-      <PortsAndBasesLayer visible={showSites} />
+      {view === 'locations' ? (
+        <>
+          <Pane name="satellitePane" style={{ zIndex: 250 }}>
+            <SatelliteImageryLayer visible={layer === 'optical'} onStatus={ignoreStatus} />
+          </Pane>
+          <Pane name="sarPane" style={{ zIndex: 260 }}>
+            <SarImageryLayer visible={layer === 'sar'} onStatus={ignoreStatus} />
+          </Pane>
+          <CompareImageryLayer visible={layer === 'both'} onStatus={ignoreStatus} />
+        </>
+      ) : (
+        <TimelineImageryLayer request={timelineRequest} />
+      )}
+      <PortsAndBasesLayer visible={sitesVisible} />
     </MapContainer>
   );
 }
